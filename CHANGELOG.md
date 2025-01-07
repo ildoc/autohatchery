@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.3.4] - 07/01/2024
+
+### Added
+- Initial boost for points
+
 ## [1.3.3] - 03/01/2025
 
 _First version under git (better late than never)_
@@ -16,8 +21,3 @@ _First version under git (better late than never)_
 
 ### Removed
 - Removed queue count near "Hatchery" text
-
-## [1.3.4] - 07/01/2024
-
-### Added
-- Initial boost for points
