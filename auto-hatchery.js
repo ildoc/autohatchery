@@ -1,12 +1,13 @@
 // ==UserScript==
 // @name        Auto-Hatchery - pokeclicker.com
-// @namespace   Violentmonkey Scripts
+// @namespace   Pokeclicker Scripts
 // @match       https://www.pokeclicker.com/
+// @icon          https://www.google.com/s2/favicons?domain=pokeclicker.com
 // @grant       none
 // @version     1.3.4
 // @author      il_doc
 // @description 12/24/2020, 2:08:50 PM
-// @run-at      document-end
+// @run-at      document-idle
 // ==/UserScript==
 
 const MINUTES = 2;
@@ -47,20 +48,20 @@ function boostInitialCurrencies() {
   let currentBattlePoints = App.game.wallet.currencies[5]();
   let currentContestTokens = App.game.wallet.currencies[6]();
 
-  if (currentMoney < INITIAL_MONEY && currentMoney < 1000)
-    App.game.wallet.gainMoney(INITIAL_MONEY, true);
-  if (currentQuestPoints < INITIAL_QUEST_POINTS && currentQuestPoints < 1000)
-    App.game.wallet.gainQuestPoints(INITIAL_QUEST_POINTS, true);
-  if (currentDungeonTokens < INITIAL_DUNGEON_TOKENS && currentDungeonTokens < 1000)
-    App.game.wallet.gainDungeonTokens(INITIAL_DUNGEON_TOKENS, true);
-  if (currentDiamonds < INITIAL_DIAMONDS && currentDiamonds < 1000)
-    App.game.wallet.gainDiamonds(INITIAL_DIAMONDS, true);
-  if (currentFarmPoints < INITIAL_FARM_POINTS && currentFarmPoints < 1000)
-    App.game.wallet.gainFarmPoints(INITIAL_FARM_POINTS, true);
-  if (currentBattlePoints < INITIAL_BATTLE_POINTS && currentBattlePoints < 1000)
-    App.game.wallet.gainBattlePoints(INITIAL_BATTLE_POINTS, true);
-  if (currentContestTokens < INITIAL_CONTEST_TOKENS && currentContestTokens < 1000)
-    App.game.wallet.gainContestTokens(INITIAL_CONTEST_TOKENS, true);
+  if (currentMoney < INITIAL_MONEY)
+    App.game.wallet.gainMoney(INITIAL_MONEY - currentMoney, true);
+  if (currentQuestPoints < INITIAL_QUEST_POINTS)
+    App.game.wallet.gainQuestPoints(INITIAL_QUEST_POINTS - currentQuestPoints, true);
+  if (currentDungeonTokens < INITIAL_DUNGEON_TOKENS)
+    App.game.wallet.gainDungeonTokens(INITIAL_DUNGEON_TOKENS - currentDungeonTokens, true);
+  if (currentDiamonds < INITIAL_DIAMONDS)
+    App.game.wallet.gainDiamonds(INITIAL_DIAMONDS - currentDiamonds, true);
+  if (currentFarmPoints < INITIAL_FARM_POINTS)
+    App.game.wallet.gainFarmPoints(INITIAL_FARM_POINTS - currentFarmPoints, true);
+  if (currentBattlePoints < INITIAL_BATTLE_POINTS)
+    App.game.wallet.gainBattlePoints(INITIAL_BATTLE_POINTS - currentBattlePoints, true);
+  if (currentContestTokens < INITIAL_CONTEST_TOKENS)
+    App.game.wallet.gainContestTokens(INITIAL_CONTEST_TOKENS - currentContestTokens, true);
 }
 
 function checkAndHatchEggs(isEnabled) {

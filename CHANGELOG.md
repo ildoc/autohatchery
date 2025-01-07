@@ -4,6 +4,7 @@
 
 ### Added
 - Initial boost for points
+- Ensure minimum quota for points
 
 ## [1.3.3] - 03/01/2025
 
