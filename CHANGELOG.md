@@ -16,3 +16,8 @@ _First version under git (better late than never)_
 
 ### Removed
 - Removed queue count near "Hatchery" text
+
+## [1.3.4] - 07/01/2024
+
+### Added
+- Initial boost for points
