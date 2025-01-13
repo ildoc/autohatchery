@@ -2,7 +2,7 @@
 // @name        Auto-Hatchery - pokeclicker.com
 // @namespace   Pokeclicker Scripts
 // @author      ildoc
-// @description Auto hatch Pokemons based on max attack and other various small QoL improvements
+// @description Auto-hatch Pokemons based on max attack and other various small QoL improvements
 // @copyright   https://github.com/ildoc
 // @license     GNU GPLv3
 // @version     1.3.6
