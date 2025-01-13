@@ -5,7 +5,7 @@
 // @description Auto hatch Pokemons based on max attack and other various small QoL improvements
 // @copyright   https://github.com/ildoc
 // @license     GNU GPLv3
-// @version     1.3.5
+// @version     1.3.6
 
 // @homepageURL https://github.com/ildoc/autohatchery/
 // @supportURL  https://github.com/ildoc/autohatchery/issues

@@ -1,8 +1,11 @@
 # Changelog
 
-## [1.3.5] - 13/01/2024
+## [1.3.6] - 13/01/2024
 
 ### Added
+- Added license
+
+### Changed
 - Increased initial diamonds
 - Increased initial dungeon tokens
 
