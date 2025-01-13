@@ -4,7 +4,7 @@
 // @match       https://www.pokeclicker.com/
 // @icon          https://www.google.com/s2/favicons?domain=pokeclicker.com
 // @grant       none
-// @version     1.3.4
+// @version     1.3.5
 // @author      il_doc
 // @description 12/24/2020, 2:08:50 PM
 // @run-at      document-idle
@@ -15,7 +15,7 @@ const QUEUESLOTS = 1500;
 const INITIAL_MONEY = 1000000000;
 const INITIAL_QUEST_POINTS = 10000000;
 const INITIAL_DUNGEON_TOKENS = 10000000;
-const INITIAL_DIAMONDS = 100000;
+const INITIAL_DIAMONDS = 1000000;
 const INITIAL_FARM_POINTS = 10000000;
 const INITIAL_BATTLE_POINTS = 10000000;
 const INITIAL_CONTEST_TOKENS = 10000000;

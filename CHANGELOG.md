@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.3.5] - 13/01/2024
+
+### Added
+- Increased initial diamonds
+
 ## [1.3.4] - 07/01/2024
 
 ### Added
