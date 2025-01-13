@@ -4,6 +4,7 @@
 
 ### Added
 - Increased initial diamonds
+- Increased initial dungeon tokens
 
 ## [1.3.4] - 07/01/2024
 
