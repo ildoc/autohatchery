@@ -1,13 +1,21 @@
 // ==UserScript==
 // @name        Auto-Hatchery - pokeclicker.com
 // @namespace   Pokeclicker Scripts
-// @match       https://www.pokeclicker.com/
-// @icon          https://www.google.com/s2/favicons?domain=pokeclicker.com
-// @grant       none
+// @author      ildoc
+// @description Auto hatch Pokemons based on max attack and other various small QoL improvements
+// @copyright   https://github.com/ildoc
+// @license     GNU GPLv3
 // @version     1.3.5
-// @author      il_doc
-// @description 12/24/2020, 2:08:50 PM
+
+// @homepageURL https://github.com/ildoc/autohatchery/
+// @supportURL  https://github.com/ildoc/autohatchery/issues
+
+// @match       https://www.pokeclicker.com/
+// @icon        https://www.google.com/s2/favicons?domain=pokeclicker.com
+// @grant       none
 // @run-at      document-idle
+// @downloadURL https://update.greasyfork.org/scripts/523661/Auto-Hatchery%20-%20pokeclickercom.user.js
+// @updateURL https://update.greasyfork.org/scripts/523661/Auto-Hatchery%20-%20pokeclickercom.meta.js
 // ==/UserScript==
 
 const MINUTES = 2;
