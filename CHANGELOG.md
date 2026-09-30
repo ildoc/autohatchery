@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.6.0] - 30/09/2026
+
+### Added
+- "Cheats" card: catch all Pokémon from unlocked regions
+- Options for shiny, shadow, and gender (random / male / female / genderless)
+- Catch notifications are fully suppressed during the mass catch (including shiny/shadow)
+
+## [1.5.0] - 30/09/2026
+
+### Added
+- Dedicated "Auto Hatchery" settings card in the game UI (next to Hatchery)
+- Configurable queue check interval (minutes), persisted in localStorage
+- "Run check now" button for manual hatchery/queue refill
+- Last check status line on the settings card
+
+### Changed
+- Moved Auto / PKRS / Auto Egg / Max DMG controls into the settings card
+
 ## [1.4.1] - 30/09/2026
 
 ### Fixed
