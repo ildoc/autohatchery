@@ -5,7 +5,7 @@
 // @description Auto-hatch, auto-clicker (gym/dungeon), weather freeze, cheats and QoL for pokeclicker.com
 // @copyright   https://github.com/ildoc
 // @license     GNU GPLv3
-// @version     1.8.3
+// @version     1.8.4
 
 // @homepageURL https://github.com/ildoc/autohatchery/
 // @supportURL  https://github.com/ildoc/autohatchery/issues
@@ -32,9 +32,11 @@ let hatchState = loadSetting('ah_autoHatch', true);
 let eggState = loadSetting('ah_autoEgg', false);
 let pkrsState = loadSetting('ah_pokerusMode', false);
 let queueIntervalMinutes = loadSetting('ah_queueIntervalMinutes', DEFAULT_QUEUE_INTERVAL_MINUTES);
+let autoPurifyEnabled = loadSetting('ah_autoPurify', false);
 let pkrsHatcherySearchTime = 0;
 let numMonsWithPkrsCached;
 let queueIntervalId = null;
+let autoPurifyBound = false;
 
 function scheduleIdle(fn, timeout = 2000) {
   const run = () => {
@@ -263,6 +265,11 @@ function addCheatsCard() {
             <option value="${GameConstants.BattlePokemonGender.NoGender}">Genderless</option>
           </select>
         </div>
+        <div class="d-flex flex-wrap align-items-center mt-2" style="gap:8px;">
+          <button id="ah-auto-purify-toggle" class="btn btn-sm btn-${autoPurifyEnabled ? 'success' : 'danger'}" title="When Orre Purify Chamber reaches maximum flow, automatically purify a Shadow Pokémon">
+            Auto Purify [${autoPurifyEnabled ? 'ON' : 'OFF'}]
+          </button>
+        </div>
         <div class="mt-2">
           <button id="ah-catch-all" class="btn btn-sm btn-warning btn-block">
             Catch all Pokémon (unlocked regions)
@@ -276,10 +283,63 @@ function addCheatsCard() {
   document.getElementById('ah-catch-all').addEventListener('click', () => {
     catchAllUnlockedPokemon();
   });
+
+  const autoPurifyBtn = document.getElementById('ah-auto-purify-toggle');
+  autoPurifyBtn.addEventListener('click', () => {
+    autoPurifyEnabled = !autoPurifyEnabled;
+    saveSetting('ah_autoPurify', autoPurifyEnabled);
+    toggleButtonClass(autoPurifyBtn, autoPurifyEnabled);
+    autoPurifyBtn.textContent = `Auto Purify [${autoPurifyEnabled ? 'ON' : 'OFF'}]`;
+    if (autoPurifyEnabled)
+      tryAutoPurify();
+  });
+
+  bindAutoPurify();
+  if (autoPurifyEnabled)
+    tryAutoPurify();
 }
 
 function setCheatStatus(message) {
   setElementText('ah-cheat-status', message);
+}
+
+function bindAutoPurify() {
+  if (autoPurifyBound || typeof PurifyChamber === 'undefined')
+    return;
+  autoPurifyBound = true;
+
+  const oldGainFlow = PurifyChamber.prototype.gainFlow;
+  PurifyChamber.prototype.gainFlow = function gainFlow(...args) {
+    const result = oldGainFlow.apply(this, args);
+    if (autoPurifyEnabled && this.currentFlow() >= this.flowNeeded())
+      tryAutoPurify(this);
+    return result;
+  };
+}
+
+function tryAutoPurify(chamber = App.game?.purifyChamber) {
+  if (!autoPurifyEnabled || !chamber)
+    return false;
+  if (!PurifyChamber.requirements.isCompleted())
+    return false;
+  if (chamber.currentFlow() < chamber.flowNeeded())
+    return false;
+
+  let selected = chamber.selectedPokemon();
+  if (!selected || selected.shadow !== GameConstants.ShadowStatus.Shadow) {
+    selected = App.game.party.caughtPokemon.find(p => p.shadow === GameConstants.ShadowStatus.Shadow);
+    if (!selected)
+      return false;
+    chamber.selectedPokemon(selected);
+  }
+
+  if (!chamber.canPurify())
+    return false;
+
+  const name = selected.displayName || selected.name;
+  chamber.purify();
+  setCheatStatus(`Auto purified ${name}`);
+  return true;
 }
 
 function getCheatOptions() {

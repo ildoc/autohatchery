@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.8.4] - 30/09/2026
+
+### Added
+- Cheats: Auto Purify toggle — when Orre Purify Chamber hits maximum flow, auto-selects a Shadow Pokémon (if needed) and calls `purify()`
+
 ## [1.8.3] - 30/09/2026
 
 ### Changed
