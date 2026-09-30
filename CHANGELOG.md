@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.8.2] - 30/09/2026
+
+### Changed
+- Lazy/deferred startup: core hatchery loads first; queue/currency boost + weather freeze next; Auto Clicker UI, Cheats card, and weather select via `requestIdleCallback` (sooner if clicker/gym/dungeon were left ON)
+
+## [1.8.1] - 30/09/2026
+
+### Changed
+- Game-ready wait: prefer official `GameLoadState.onLoadState(running)`, with `Preload.hideSplashScreen` hook and a short poll as fallbacks (replaces the 1s busy loop)
+
+## [1.8.0] - 30/09/2026
+
+### Added
+- Weather freeze selector on the Town Map (from Simple Weather Changer): pick a weather for all regions, or Default
+- Migrates legacy `weatherChangerWeather` localStorage key to `ah_weather`
+
+### Changed
+- Shared `addStyle` / `setElementText` helpers; currency boost uses a compact table
+- Weather select positioned for current Town Map header (DayCycle / Weather / Moon buttons)
+
+## [1.7.0] - 30/09/2026
+
+### Added
+- Auto Clicker panel (from Enhanced Auto Clicker): multi-click attacks, efficiency/DPS stats
+- Auto Gym with gym selector and free auto-restart while enabled
+- Auto Dungeon with encounter/chest modes, loot tier filter, finish-before-stop, rare chest option
+
+### Changed
+- Adapted clicker for Pokeclicker 0.10.26+: `instanceof Gym`, dungeon `hasUnlockedBoss` check, Battle.clickAttack override (Gym/Dungeon/Temporary inherit via super), safer flash radius / stuck-loop handling
+- Clicker settings use `ah_` localStorage keys (no clash with the standalone Ephenia script)
+
 ## [1.6.0] - 30/09/2026
 
 ### Added
