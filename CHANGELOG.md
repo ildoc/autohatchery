@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.4.0] - 30/09/2026
+
+### Added
+- PKRS Mode: spreads Pokerus by pairing uninfected and contagious Pokémon of the same type
+- Auto Egg: uses eggs from inventory when hatchery slots are free
+- Auto Fossil / Shiny Fossils: consumes underground fossils, prioritizing uncaught (and non-shiny if enabled)
+- Toggle buttons with localStorage persistence for Auto, PKRS, Egg, Fossil, Shiny Fossils, and Max DMG
+- Hook into breeding progress for reactive egg hatching and slot refill
+
+### Changed
+- UI controls split between hatchery card (Auto + Max DMG) and breeding modal (PKRS / Egg / Fossil toggles)
+
 ## [1.3.6] - 13/01/2024
 
 ### Added
