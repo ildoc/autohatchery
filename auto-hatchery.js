@@ -5,7 +5,7 @@
 // @description Auto-hatch, auto-clicker (gym/dungeon), weather freeze, cheats and QoL for pokeclicker.com
 // @copyright   https://github.com/ildoc
 // @license     GNU GPLv3
-// @version     1.8.2
+// @version     1.8.3
 
 // @homepageURL https://github.com/ildoc/autohatchery/
 // @supportURL  https://github.com/ildoc/autohatchery/issues
@@ -621,6 +621,7 @@ class AutoClicker {
     floorFinished: false,
     dungeonFinished: false,
     stopAfterFinishing: false,
+    pathfindingPaused: false,
   };
 
   static autoClickCalcLoop = null;
@@ -665,7 +666,7 @@ class AutoClicker {
 
     window.AutoClicker = this;
 
-    if ((this.autoGymState || this.autoDungeonState) && !this.autoClickState) {
+    if (this.autoGymState && !this.autoClickState) {
       this.autoClickState = true;
       saveSetting('ah_autoClickState', true);
       const btn = document.getElementById('ah-auto-click-start');
@@ -677,7 +678,19 @@ class AutoClicker {
     }
     document.body.classList.toggle('ah-auto-gym-on', this.autoGymState);
 
-    if (this.autoClickState)
+    // Already inside a dungeon when the panel loads → start clicker
+    if (App.game.gameState === GameConstants.GameState.dungeon)
+      this.ensureClickerForDungeon();
+    else if (this.autoClickState)
+      this.toggleAutoClickerLoop();
+  }
+
+  static ensureClickerForDungeon() {
+    if (!this.ready)
+      return;
+    if (!this.autoClickState)
+      this.toggleAutoClick();
+    else if (!this.autoClickerLoop)
       this.toggleAutoClickerLoop();
   }
 
@@ -721,8 +734,8 @@ class AutoClicker {
       <tr>
         <td style="display:flex; column-gap:2px;">
           <div style="flex:auto;">
-            <button id="ah-auto-dungeon-start" class="btn btn-block btn-${this.autoDungeonState ? 'success' : 'danger'}" style="font-size:8pt;">
-              Auto Dungeon [${this.autoDungeonState ? 'ON' : 'OFF'}]
+            <button id="ah-auto-dungeon-start" class="btn btn-block btn-${this.autoDungeonState ? 'success' : 'danger'}" style="font-size:8pt;" title="Auto-restart the current dungeon after clearing it">
+              Dungeon Restart [${this.autoDungeonState ? 'ON' : 'OFF'}]
             </button>
           </div>
           <div id="ah-auto-dungeon-encounter-mode" style="flex:initial; max-height:30px; max-width:30px; padding:2px; cursor:pointer;">
@@ -760,7 +773,7 @@ class AutoClicker {
       <tr>
         <td>
           <div class="d-flex flex-wrap align-items-center small" style="gap:8px; padding:4px;">
-            <label class="mb-0"><input type="checkbox" id="ah-dungeon-finish-before-stop" ${this.autoDungeonFinishBeforeStopping ? 'checked' : ''}> Finish dungeon before stop</label>
+            <label class="mb-0"><input type="checkbox" id="ah-dungeon-finish-before-stop" ${this.autoDungeonFinishBeforeStopping ? 'checked' : ''}> Finish dungeon before disabling restart</label>
             <label class="mb-0"><input type="checkbox" id="ah-dungeon-open-rare" ${this.autoDungeonAlwaysOpenRareChests ? 'checked' : ''}> Always open visible rare+ chests</label>
             <label class="mb-0">Efficiency
               <select id="ah-calc-efficiency-mode" class="custom-select custom-select-sm d-inline-block" style="width:auto;">
@@ -806,14 +819,11 @@ class AutoClicker {
     this.autoClickState = !this.autoClickState;
     saveSetting('ah_autoClickState', this.autoClickState);
     element.classList.replace(...(this.autoClickState ? ['btn-danger', 'btn-success'] : ['btn-success', 'btn-danger']));
-    // Keep label + stats div
-    element.childNodes[0].textContent = `Auto Click [${this.autoClickState ? 'ON' : 'OFF'}]`;
-    if (!this.autoClickState) {
-      if (this.autoGymState)
-        this.toggleAutoGym();
-      if (this.autoDungeonState)
-        this.toggleAutoDungeon();
-    }
+    if (element.childNodes[0])
+      element.childNodes[0].textContent = `Auto Click [${this.autoClickState ? 'ON' : 'OFF'}]`;
+    if (!this.autoClickState && this.autoGymState)
+      this.toggleAutoGym();
+    // Dungeon Restart stays independent — clicker re-enables on next dungeon enter
     this.toggleAutoClickerLoop();
   }
 
@@ -861,6 +871,7 @@ class AutoClicker {
   }
 
   static toggleAutoDungeon(allowSlowStop = false) {
+    // Toggle only controls auto-restart after clearing; pathfinding runs whenever clicker is on in a dungeon
     const element = document.getElementById('ah-auto-dungeon-start');
     let newState = !this.autoDungeonState;
 
@@ -870,11 +881,9 @@ class AutoClicker {
       Notifier.notify({
         type: NotificationConstants.NotificationOption.warning,
         title: 'Auto Clicker',
-        message: 'Auto Dungeon is not compatible with Dungeon Guides.',
+        message: 'Dungeon Restart is not compatible with Dungeon Guides.',
         timeout: GameConstants.SECOND * 15,
       });
-    } else if (newState && !this.canStartAutoDungeon()) {
-      return;
     } else if (newState && this.autoGymState) {
       return;
     }
@@ -891,13 +900,7 @@ class AutoClicker {
 
     element.classList.remove('btn-success', 'btn-danger', 'btn-warning');
     element.classList.add(this.autoDungeonTracker.stopAfterFinishing ? 'btn-warning' : (newState ? 'btn-success' : 'btn-danger'));
-    element.textContent = `Auto Dungeon [${newState ? 'ON' : 'OFF'}]`;
-
-    if (newState) {
-      this.autoDungeonTracker.ID = -1;
-      if (!this.autoClickState)
-        this.toggleAutoClick();
-    }
+    element.textContent = `Dungeon Restart [${newState ? 'ON' : 'OFF'}]`;
   }
 
   static toggleAutoDungeonEncounterMode() {
@@ -975,8 +978,9 @@ class AutoClicker {
       DungeonBattle.clickAttack();
     } else if (App.game.gameState === GameConstants.GameState.temporaryBattle) {
       TemporaryBattleBattle.clickAttack();
-    } else if (this.autoDungeonState) {
-      this.autoDungeon();
+    } else if (App.game.gameState === GameConstants.GameState.dungeon) {
+      // Always progress the dungeon map while clicker is on; restart is gated separately
+      this.progressDungeon();
     } else if (this.autoGymState) {
       this.autoGym();
     } else if (App.game.gameState === GameConstants.GameState.battleFrontier || App.game.gameState === GameConstants.GameState.safari) {
@@ -1054,44 +1058,37 @@ class AutoClicker {
     };
   }
 
-  static autoDungeon() {
-    if (App.game.gameState === GameConstants.GameState.dungeon) {
-      if (DungeonRunner.fighting() || DungeonBattle.catching())
-        return;
-      if (this.autoDungeonTracker.ID !== DungeonRunner.dungeonID || this.autoDungeonTracker.floor !== DungeonRunner.map.playerPosition().floor)
-        this.scanDungeon();
-      if (this.autoDungeonTracker.dungeonFinished)
-        return;
-      if (this.autoDungeonTracker.coords == null) {
-        this.autoDungeonTracker.coords = new Point(
-          Math.floor(this.autoDungeonTracker.floorSize / 2),
-          this.autoDungeonTracker.floorSize - 1,
-          this.autoDungeonTracker.floor
-        );
-      }
-      const floorMap = DungeonRunner.map.board()[this.autoDungeonTracker.floor];
-      if (floorMap[this.autoDungeonTracker.bossCoords.y][this.autoDungeonTracker.bossCoords.x].isVisible
-        && !((this.autoDungeonChestMode || this.autoDungeonEncounterMode) && !this.autoDungeonTracker.floorExplored)) {
-        this.clearDungeon();
-      } else {
-        this.exploreDungeon();
-      }
-    } else if (this.canStartAutoDungeon()) {
-      DungeonRunner.initializeDungeon(player.town.dungeon);
+  static progressDungeon() {
+    if (App.game.gameState !== GameConstants.GameState.dungeon)
+      return;
+    if (DungeonRunner.fighting() || DungeonBattle.catching())
+      return;
+    if (DungeonGuides.hired())
+      return;
+    if (this.autoDungeonTracker.ID !== DungeonRunner.dungeonID || this.autoDungeonTracker.floor !== DungeonRunner.map.playerPosition().floor)
+      this.scanDungeon();
+    if (this.autoDungeonTracker.dungeonFinished || this.autoDungeonTracker.pathfindingPaused)
+      return;
+    if (this.autoDungeonTracker.coords == null) {
+      this.autoDungeonTracker.coords = new Point(
+        Math.floor(this.autoDungeonTracker.floorSize / 2),
+        this.autoDungeonTracker.floorSize - 1,
+        this.autoDungeonTracker.floor
+      );
+    }
+    const floorMap = DungeonRunner.map.board()[this.autoDungeonTracker.floor];
+    if (floorMap[this.autoDungeonTracker.bossCoords.y][this.autoDungeonTracker.bossCoords.x].isVisible
+      && !((this.autoDungeonChestMode || this.autoDungeonEncounterMode) && !this.autoDungeonTracker.floorExplored)) {
+      this.clearDungeon();
     } else {
-      this.toggleAutoDungeon();
+      this.exploreDungeon();
     }
   }
 
-  static canStartAutoDungeon() {
-    if (!(App.game.gameState === GameConstants.GameState.dungeon
-      || (App.game.gameState === GameConstants.GameState.town && player.town instanceof DungeonTown))) {
-      return false;
-    }
+  static canRestartDungeon() {
     if (DungeonGuides.hired())
       return false;
-    const dungeon = player.town.dungeon;
-    // 0.10.26+: also require an unlocked boss
+    const dungeon = DungeonRunner.dungeon || player.town?.dungeon;
     return !!(dungeon?.isUnlocked() && dungeon.hasUnlockedBoss() && DungeonRunner.hasEnoughTokens(dungeon));
   }
 
@@ -1106,6 +1103,7 @@ class AutoClicker {
     this.autoDungeonTracker.floorExplored = false;
     this.autoDungeonTracker.floorFinished = false;
     this.autoDungeonTracker.dungeonFinished = false;
+    this.autoDungeonTracker.pathfindingPaused = false;
 
     const dungeonBoard = DungeonRunner.map.board()[this.autoDungeonTracker.floor];
     for (let y = 0; y < dungeonBoard.length; y++) {
@@ -1169,8 +1167,8 @@ class AutoClicker {
       }
       stuckInLoopCounter++;
       if (stuckInLoopCounter > 100) {
-        console.warn('Auto Dungeon got stuck while exploring');
-        this.toggleAutoDungeon();
+        console.warn('Dungeon pathfinding got stuck while exploring');
+        this.autoDungeonTracker.pathfindingPaused = true;
         return;
       }
     }
@@ -1186,8 +1184,8 @@ class AutoClicker {
       this.autoDungeonTracker.coords = this.pathfindTowardDungeonTarget();
       if (!this.autoDungeonTracker.coords) {
         const t = this.autoDungeonTracker.targetCoords;
-        console.warn(`Auto Dungeon could not path to (${t?.x}, ${t?.y})`);
-        this.toggleAutoDungeon();
+        console.warn(`Dungeon pathfinding could not path to (${t?.x}, ${t?.y})`);
+        this.autoDungeonTracker.pathfindingPaused = true;
         return;
       }
       if (!(dungeonBoard[this.autoDungeonTracker.coords.y][this.autoDungeonTracker.coords.x] === DungeonRunner.map.currentTile())) {
@@ -1211,8 +1209,8 @@ class AutoClicker {
       }
       stuckInLoopCounter++;
       if (stuckInLoopCounter > 5) {
-        console.warn('Auto Dungeon got stuck while clearing');
-        this.toggleAutoDungeon();
+        console.warn('Dungeon pathfinding got stuck while clearing');
+        this.autoDungeonTracker.pathfindingPaused = true;
         return;
       }
     }
@@ -1268,7 +1266,7 @@ class AutoClicker {
   static restartDungeon() {
     if (App.game.gameState !== GameConstants.GameState.dungeon) {
       return;
-    } else if (!AutoClicker.canStartAutoDungeon()) {
+    } else if (!AutoClicker.canRestartDungeon()) {
       MapHelper.moveToTown(DungeonRunner.dungeon.name);
       return;
     }
@@ -1282,7 +1280,10 @@ class AutoClicker {
     const oldInit = DungeonRunner.initializeDungeon.bind(DungeonRunner);
     DungeonRunner.initializeDungeon = function (...args) {
       DungeonRunner.dungeonID++;
-      return oldInit(...args);
+      const result = oldInit(...args);
+      // Entering any dungeon always starts the autoclicker
+      AutoClicker.ensureClickerForDungeon();
+      return result;
     };
 
     DungeonRunner.dungeonWonNormal = DungeonRunner.dungeonWon;
@@ -1296,26 +1297,26 @@ class AutoClicker {
         if (AutoClicker.autoDungeonTracker.stopAfterFinishing)
           AutoClicker.toggleAutoDungeon();
 
-        if (AutoClicker.autoDungeonState && AutoClicker.canStartAutoDungeon()) {
+        if (AutoClicker.autoDungeonState && AutoClicker.canRestartDungeon()) {
           AutoClicker.autoDungeonTracker.dungeonFinished = true;
           setTimeout(() => AutoClicker.restartDungeon(), 50);
         } else {
-          if (!DungeonRunner.hasEnoughTokens()) {
+          if (AutoClicker.autoDungeonState && !DungeonRunner.hasEnoughTokens()) {
             Notifier.notify({
               type: NotificationConstants.NotificationOption.warning,
               title: 'Auto Clicker',
-              message: 'Auto Dungeon ran out of dungeon tokens.',
+              message: 'Dungeon Restart ran out of dungeon tokens.',
               timeout: GameConstants.DAY,
             });
-          }
-          if (AutoClicker.autoDungeonState)
             AutoClicker.toggleAutoDungeon();
+          }
           MapHelper.moveToTown(DungeonRunner.dungeon.name);
         }
       }
     };
+    // Restart is controlled solely by Dungeon Restart toggle
     DungeonRunner.dungeonWon = function (...args) {
-      if (AutoClicker.autoClickState && AutoClicker.autoDungeonState)
+      if (AutoClicker.autoDungeonState)
         DungeonRunner.dungeonWonAuto(...args);
       else
         DungeonRunner.dungeonWonNormal(...args);

@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.3] - 30/09/2026
+
+### Changed
+- Entering a dungeon always starts Auto Click (independent of Dungeon Restart)
+- "Dungeon Restart" toggle only controls auto-restart after clear (no longer required to farm/navigate a dungeon)
+- While Auto Click is on inside a dungeon, map pathfinding still runs; stuck pathfinding no longer disables restart
+
 ## [1.8.2] - 30/09/2026
 
 ### Changed
