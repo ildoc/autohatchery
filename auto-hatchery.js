@@ -5,7 +5,7 @@
 // @description Auto-hatch Pokemons based on max attack and other various small QoL improvements
 // @copyright   https://github.com/ildoc
 // @license     GNU GPLv3
-// @version     1.4.0
+// @version     1.4.1
 
 // @homepageURL https://github.com/ildoc/autohatchery/
 // @supportURL  https://github.com/ildoc/autohatchery/issues
@@ -30,19 +30,24 @@ const INITIAL_CONTEST_TOKENS = 1000000000;
 
 let hatchState = loadSetting('ah_autoHatch', true);
 let eggState = loadSetting('ah_autoEgg', false);
-let fossilState = loadSetting('ah_autoFossil', false);
-let shinyFossilState = loadSetting('ah_shinyFossil', false);
 let pkrsState = loadSetting('ah_pokerusMode', false);
 let pkrsHatcherySearchTime = 0;
 let numMonsWithPkrsCached;
 
 (async function waitGameReadyAndSetup() {
-  while (App.game == undefined)
+  while (App.game == undefined || !document.querySelector('#breedingDisplay > .card-header > span'))
     await new Promise(r => setTimeout(r, 1000));
-  addControls();
-  setQueueDimension();
-  boostInitialCurrencies();
-  bindAutoHatcher();
+
+  try {
+    addControls();
+    setQueueDimension();
+    boostInitialCurrencies();
+    bindAutoHatcher();
+    setInterval(() => enqueuePokemons(), MINUTES * 60 * 1000);
+    console.log('---Auto-Hatchery script loaded!---');
+  } catch (e) {
+    console.error('Auto-Hatchery setup failed:', e);
+  }
 })();
 
 function loadSetting(key, defaultVal) {
@@ -53,7 +58,7 @@ function loadSetting(key, defaultVal) {
       throw new Error();
   } catch {
     val = defaultVal;
-    localStorage.setItem(key, defaultVal);
+    localStorage.setItem(key, JSON.stringify(defaultVal));
   }
   return val;
 }
@@ -63,89 +68,81 @@ function toggleButtonClass(element, enabled) {
 }
 
 function addControls() {
-  const breedingDisplay = document.getElementById('breedingDisplay');
-  const breedingModal = document.getElementById('breedingModal');
   const maxAttackDefault = loadSetting('ah_maxAttack', App.game.party.pokemonAttackObservable());
 
-  breedingDisplay.querySelector('.card-header').insertAdjacentHTML('afterbegin',
-    `<div style="position:absolute;left:0;top:0;z-index:1;display:flex;align-items:center;gap:4px;padding:2px 4px;font-size:10px;" onclick="event.stopPropagation()">
-      <button id="auto-hatch-start" class="btn btn-sm btn-${hatchState ? 'success' : 'danger'}" style="font-size:7pt;height:28px;">
-        Auto [${hatchState ? 'ON' : 'OFF'}]
-      </button>
+  document.querySelector('#breedingDisplay > .card-header > span').insertAdjacentHTML('beforebegin',
+    `<div onclick="event.stopPropagation()">
+      Auto <input type="checkbox" id="autohatch" ${hatchState ? 'checked' : ''} />
       Max DMG <input type="text" id="maxattack" size="8" value="${maxAttackDefault}">
     </div>`);
 
-  breedingModal.querySelector('.modal-header').querySelectorAll('button')[1].insertAdjacentHTML('afterend',
-    `<button id="pkrs-mode" class="btn btn-${pkrsState ? 'success' : 'danger'}" style="margin-left:20px;">
-      PKRS [${pkrsState ? 'ON' : 'OFF'}]
-    </button>
-    <button id="auto-egg" class="btn btn-${eggState ? 'success' : 'danger'}" style="margin-left:20px;">
-      Auto Egg [${eggState ? 'ON' : 'OFF'}]
-    </button>
-    <button id="auto-fossil" class="btn btn-${fossilState ? 'success' : 'danger'}" style="margin-left:20px;">
-      Auto Fossil [${fossilState ? 'ON' : 'OFF'}]
-    </button>
-    <button id="shiny-fossils" class="btn btn-${shinyFossilState ? 'success' : 'danger'}" style="margin-left:20px;">
-      Shiny Fossils [${shinyFossilState ? 'ON' : 'OFF'}]
-    </button>`);
+  const fireAll = document.getElementById('breeding-fireall');
+  if (fireAll) {
+    fireAll.insertAdjacentHTML('beforebegin',
+      `<button id="pkrs-mode" class="btn btn-${pkrsState ? 'success' : 'danger'}" style="margin-left:8px;">
+        PKRS [${pkrsState ? 'ON' : 'OFF'}]
+      </button>
+      <button id="auto-egg" class="btn btn-${eggState ? 'success' : 'danger'}" style="margin-left:8px;">
+        Auto Egg [${eggState ? 'ON' : 'OFF'}]
+      </button>`);
+  }
 
-  document.getElementById('auto-hatch-start').addEventListener('click', event => {
+  document.getElementById('autohatch').addEventListener('click', event => {
     event.stopPropagation();
-    hatchState = !hatchState;
-    toggleButtonClass(event.target, hatchState);
-    event.target.textContent = `Auto [${hatchState ? 'ON' : 'OFF'}]`;
-    localStorage.setItem('ah_autoHatch', hatchState);
+    hatchState = event.target.checked;
+    localStorage.setItem('ah_autoHatch', JSON.stringify(hatchState));
   });
 
-  document.getElementById('auto-egg').addEventListener('click', event => {
-    eggState = !eggState;
-    toggleButtonClass(event.target, eggState);
-    event.target.textContent = `Auto Egg [${eggState ? 'ON' : 'OFF'}]`;
-    localStorage.setItem('ah_autoEgg', eggState);
-  });
-
-  document.getElementById('auto-fossil').addEventListener('click', event => {
-    fossilState = !fossilState;
-    toggleButtonClass(event.target, fossilState);
-    event.target.textContent = `Auto Fossil [${fossilState ? 'ON' : 'OFF'}]`;
-    localStorage.setItem('ah_autoFossil', fossilState);
-  });
-
-  document.getElementById('shiny-fossils').addEventListener('click', event => {
-    shinyFossilState = !shinyFossilState;
-    toggleButtonClass(event.target, shinyFossilState);
-    event.target.textContent = `Shiny Fossils [${shinyFossilState ? 'ON' : 'OFF'}]`;
-    localStorage.setItem('ah_shinyFossil', shinyFossilState);
-  });
-
-  document.getElementById('pkrs-mode').addEventListener('click', event => {
-    pkrsState = !pkrsState;
-    toggleButtonClass(event.target, pkrsState);
-    event.target.textContent = `PKRS [${pkrsState ? 'ON' : 'OFF'}]`;
-    localStorage.setItem('ah_pokerusMode', pkrsState);
+  document.getElementById('maxattack').addEventListener('click', event => {
+    event.stopPropagation();
   });
 
   document.getElementById('maxattack').addEventListener('change', event => {
     const value = Number(event.target.value) || 0;
-    localStorage.setItem('ah_maxAttack', value);
+    localStorage.setItem('ah_maxAttack', JSON.stringify(value));
   });
+
+  const autoEggBtn = document.getElementById('auto-egg');
+  if (autoEggBtn) {
+    autoEggBtn.addEventListener('click', event => {
+      eggState = !eggState;
+      toggleButtonClass(event.target, eggState);
+      event.target.textContent = `Auto Egg [${eggState ? 'ON' : 'OFF'}]`;
+      localStorage.setItem('ah_autoEgg', JSON.stringify(eggState));
+    });
+  }
+
+  const pkrsBtn = document.getElementById('pkrs-mode');
+  if (pkrsBtn) {
+    pkrsBtn.addEventListener('click', event => {
+      pkrsState = !pkrsState;
+      toggleButtonClass(event.target, pkrsState);
+      event.target.textContent = `PKRS [${pkrsState ? 'ON' : 'OFF'}]`;
+      localStorage.setItem('ah_pokerusMode', JSON.stringify(pkrsState));
+    });
+  }
 }
 
 function setQueueDimension() {
+  // Ensure the queue size setting does not cap usable slots below QUEUESLOTS
+  const queueSizeSetting = Settings.getSetting('breedingQueueSizeSetting');
+  if (queueSizeSetting && +queueSizeSetting.observableValue() > -1)
+    queueSizeSetting.observableValue(-1);
+
   if (App.game.breeding.queueSlots() < QUEUESLOTS) {
-    App.game.breeding.gainQueueSlot(QUEUESLOTS);
-    console.log('Queue slots set to ' + QUEUESLOTS);
+    App.game.breeding.gainQueueSlot(QUEUESLOTS - App.game.breeding.queueSlots());
+    console.log('Queue slots set to ' + App.game.breeding.queueSlots());
   }
 }
 
 function boostInitialCurrencies() {
-  const currentMoney = App.game.wallet.currencies[0]();
-  const currentQuestPoints = App.game.wallet.currencies[1]();
-  const currentDungeonTokens = App.game.wallet.currencies[2]();
-  const currentDiamonds = App.game.wallet.currencies[3]();
-  const currentFarmPoints = App.game.wallet.currencies[4]();
-  const currentBattlePoints = App.game.wallet.currencies[5]();
-  const currentContestTokens = App.game.wallet.currencies[6]();
+  const currentMoney = App.game.wallet.currencies[GameConstants.Currency.money]();
+  const currentQuestPoints = App.game.wallet.currencies[GameConstants.Currency.questPoint]();
+  const currentDungeonTokens = App.game.wallet.currencies[GameConstants.Currency.dungeonToken]();
+  const currentDiamonds = App.game.wallet.currencies[GameConstants.Currency.diamond]();
+  const currentFarmPoints = App.game.wallet.currencies[GameConstants.Currency.farmPoint]();
+  const currentBattlePoints = App.game.wallet.currencies[GameConstants.Currency.battlePoint]();
+  const currentContestTokens = App.game.wallet.currencies[GameConstants.Currency.contestToken]();
 
   if (currentMoney < INITIAL_MONEY)
     App.game.wallet.gainMoney(INITIAL_MONEY - currentMoney, true);
@@ -173,8 +170,13 @@ function bindAutoHatcher() {
   const progressEggsOld = Breeding.prototype.progressEggs;
   Breeding.prototype.progressEggs = function progressEggs(...args) {
     const result = progressEggsOld.apply(this, args);
-    if (hatchState && App.game.breeding.canAccess())
-      fillEggSlots();
+    if (hatchState && App.game.breeding.canAccess()) {
+      try {
+        fillEggSlots();
+      } catch (e) {
+        console.error('Auto-Hatchery fillEggSlots error:', e);
+      }
+    }
     return result;
   };
 }
@@ -190,7 +192,6 @@ function fillEggSlots() {
   while (App.game.breeding.hasFreeEggSlot()) {
     let success = pkrsState && autoHatchPkrs();
     success ||= eggState && autoHatchEgg();
-    success ||= fossilState && autoHatchFossil();
     success ||= autoHatchMon();
     if (!success)
       break;
@@ -255,10 +256,17 @@ function autoHatchPkrs() {
   }
 
   if (foundPair) {
-    const success = App.game.breeding.addPokemonToHatchery(foundPair.uninfected)
-      && App.game.breeding.addPokemonToHatchery(foundPair.contagious);
-    numMonsWithPkrsCached += success;
-    return success;
+    // Need two free egg slots to pair for Pokerus spread
+    if (!App.game.breeding.hasFreeEggSlot())
+      return false;
+    const first = App.game.breeding.addPokemonToHatchery(foundPair.uninfected);
+    if (!first)
+      return false;
+    if (!App.game.breeding.hasFreeEggSlot())
+      return true;
+    const second = App.game.breeding.addPokemonToHatchery(foundPair.contagious);
+    numMonsWithPkrsCached += second ? 1 : 0;
+    return second;
   }
 
   pkrsHatcherySearchTime = Date.now();
@@ -271,26 +279,6 @@ function autoHatchEgg() {
     return false;
   const eggToUse = eggList[Math.floor(Math.random() * eggList.length)];
   return ItemList[eggToUse].use();
-}
-
-function autoHatchFossil() {
-  let fossilList = UndergroundItems.list.filter(it =>
-    it.valueType === UndergroundItemValueType.Fossil && player.itemList[it.itemName]() > 0);
-  if (fossilList.length == 0)
-    return false;
-
-  const priorityList = fossilList.filter(f => {
-    const caughtStatus = PartyController.getCaughtStatusByName(GameConstants.FossilToPokemon[f.name]);
-    return caughtStatus == CaughtStatus.NotCaught
-      || (shinyFossilState && caughtStatus == CaughtStatus.Caught);
-  });
-  if (priorityList.length)
-    fossilList = priorityList;
-
-  const fossilToUse = fossilList[Math.floor(Math.random() * fossilList.length)];
-  const before = player.amountOfItem(fossilToUse.itemName);
-  UndergroundController.sellMineItem(fossilToUse);
-  return before > player.amountOfItem(fossilToUse.itemName);
 }
 
 function autoHatchMon() {
@@ -313,30 +301,28 @@ function getEfficiencySortedList() {
 }
 
 function enqueuePokemons() {
-  if (!hatchState)
+  if (!hatchState || App.game == undefined)
     return;
 
-  fillEggSlots();
-
-  const maxAttack = getMaxAttack();
   try {
+    fillEggSlots();
+
+    const maxAttack = getMaxAttack();
     const list = getEfficiencySortedList();
     let i = 0;
+    // addPokemonToHatchery fills egg slots first, then the queue (public API since 0.10.24)
     while (
       App.game.party.pokemonAttackObservable() >= maxAttack
       && App.game.breeding.hasFreeQueueSlot()
       && i < list.length
     ) {
-      App.game.breeding.addToQueue(list[i]);
+      if (!App.game.breeding.addPokemonToHatchery(list[i]))
+        break;
       i++;
     }
     if (i > 0)
-      console.log('added ' + i + ' pokemon(s) to queue');
+      console.log('added ' + i + ' pokemon(s) to hatchery queue');
   } catch (e) {
-    console.log(e);
+    console.error('Auto-Hatchery enqueue error:', e);
   }
 }
-
-setInterval(() => enqueuePokemons(), MINUTES * 60 * 1000);
-
-console.log('---Auto-Hatchery script loaded!---');

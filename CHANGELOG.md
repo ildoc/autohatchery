@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.4.1] - 30/09/2026
+
+### Fixed
+- Compatibility with Pokeclicker 0.10.24+: replaced removed `addToQueue` with public `addPokemonToHatchery` (queue fill was silently failing)
+- Currency boost now uses `GameConstants.Currency` indexes instead of hardcoded array positions
+- Queue boost also clears `breedingQueueSizeSetting` cap so gained slots are actually usable
+- Setup no longer aborts entirely if modal toggle injection fails
+
+### Removed
+- Auto Fossil / Shiny Fossils: fossils can no longer be hatched (revived via regional NPCs since 0.10.24)
+
 ## [1.4.0] - 30/09/2026
 
 ### Added
