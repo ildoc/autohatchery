@@ -5,7 +5,7 @@
 // @description Auto-hatch, auto-clicker (gym/dungeon), weather freeze, cheats and QoL for pokeclicker.com
 // @copyright   https://github.com/ildoc
 // @license     GNU GPLv3
-// @version     1.9.0
+// @version     1.9.1
 
 // @homepageURL https://github.com/ildoc/autohatchery/
 // @supportURL  https://github.com/ildoc/autohatchery/issues
@@ -285,7 +285,7 @@ function addCheatsCard() {
         </button>
         <hr class="my-2">
         <div class="small text-muted mb-1">Region bulk grind</div>
-        <button id="ah-bulk-grind" class="btn btn-sm btn-info btn-block" title="Oneshot-only: ${BULK_ROUTE_KILLS} route kills, ${BULK_GYM_CLEARS} gym clears, ${BULK_DUNGEON_CLEARS} dungeon clears in the current region">
+        <button id="ah-bulk-grind" class="btn btn-sm btn-info btn-block" title="Oneshot-only: fill started routes to ${BULK_ROUTE_KILLS} kills and started gyms/dungeons to ${BULK_GYM_CLEARS}/${BULK_DUNGEON_CLEARS} clears in the current region">
           Bulk grind current region
         </button>
         <div id="ah-bulk-progress-wrap" class="progress mt-2" style="height:10px;display:none;">
@@ -651,15 +651,6 @@ async function awardGymClears(model, clears, progress) {
 async function awardDungeonClears(model, clears, progress) {
   const idx = GameConstants.getDungeonIndex(model.dungeon.name);
   const stats = App.game.statistics.dungeonsCleared[idx];
-  const hadClears = stats() > 0;
-
-  if (!hadClears) {
-    try {
-      model.dungeon.rewardFunction();
-    } catch (e) {
-      console.warn('Auto-Hatchery bulk dungeon first-clear reward error:', e);
-    }
-  }
 
   let remaining = clears;
   while (remaining > 0) {
@@ -679,24 +670,63 @@ async function awardDungeonClears(model, clears, progress) {
   }
 }
 
+function getRouteKillCount(region, route) {
+  return App.game.statistics.routeKills[region]?.[route]?.() || 0;
+}
+
+function getGymClearCount(town) {
+  const idx = GameConstants.getGymIndex(town);
+  return App.game.statistics.gymsDefeated[idx]?.() || 0;
+}
+
+function getDungeonClearCount(name) {
+  const idx = GameConstants.getDungeonIndex(name);
+  return App.game.statistics.dungeonsCleared[idx]?.() || 0;
+}
+
 function collectBulkTargets(region) {
   const routes = Routes.getRoutesByRegion(region)
     .filter(canOneshotRoute)
-    .map(buildRouteRewardModel);
+    .map(routeData => {
+      const current = getRouteKillCount(routeData.region, routeData.number);
+      const needed = Math.max(0, BULK_ROUTE_KILLS - current);
+      if (current <= 0 || needed <= 0)
+        return null;
+      return { ...buildRouteRewardModel(routeData), current, needed };
+    })
+    .filter(Boolean);
 
   const gymNames = GameConstants.RegionGyms[region] || [];
   const gyms = gymNames
     .map(name => GymList[name])
     .filter(canOneshotGym)
-    .map(buildGymRewardModel);
+    .map(gym => {
+      const current = getGymClearCount(gym.town);
+      const needed = Math.max(0, BULK_GYM_CLEARS - current);
+      if (current <= 0 || needed <= 0)
+        return null;
+      return { ...buildGymRewardModel(gym), current, needed };
+    })
+    .filter(Boolean);
 
   const dungeonNames = GameConstants.RegionDungeons[region] || [];
   const dungeons = dungeonNames
     .map(name => dungeonList[name])
     .filter(canOneshotDungeon)
-    .map(buildDungeonRewardModel);
+    .map(dungeon => {
+      const current = getDungeonClearCount(dungeon.name);
+      const needed = Math.max(0, BULK_DUNGEON_CLEARS - current);
+      if (current <= 0 || needed <= 0)
+        return null;
+      return { ...buildDungeonRewardModel(dungeon), current, needed };
+    })
+    .filter(Boolean);
 
   return { routes, gyms, dungeons };
+}
+
+function sumNeeded(targets) {
+  return targets.reduce((sum, t) => sum + t.needed, 0);
 }
 
 async function runBulkGrind(region) {
@@ -705,20 +735,18 @@ async function runBulkGrind(region) {
 
   const progress = {
     done: 0,
-    total:
-      routes.length * BULK_ROUTE_KILLS
-      + gyms.length * BULK_GYM_CLEARS
-      + dungeons.length * BULK_DUNGEON_CLEARS,
+    total: sumNeeded(routes) + sumNeeded(gyms) + sumNeeded(dungeons),
   };
 
   if (progress.total <= 0) {
-    setBulkStatus(`No oneshot targets in ${regionName}`);
+    setBulkStatus(`Nothing to grind in ${regionName} (need started + oneshot + below cap)`);
     setBulkProgress(0, 0);
     return {
       regionName,
       routes: 0,
       gyms: 0,
       dungeons: 0,
+      units: 0,
     };
   }
 
@@ -726,11 +754,11 @@ async function runBulkGrind(region) {
   setBulkStatus(`Starting ${regionName}…`);
 
   for (const model of routes)
-    await awardRouteKills(model, BULK_ROUTE_KILLS, progress);
+    await awardRouteKills(model, model.needed, progress);
   for (const model of gyms)
-    await awardGymClears(model, BULK_GYM_CLEARS, progress);
+    await awardGymClears(model, model.needed, progress);
   for (const model of dungeons)
-    await awardDungeonClears(model, BULK_DUNGEON_CLEARS, progress);
+    await awardDungeonClears(model, model.needed, progress);
 
   refillHatcheryForBulk();
   setBulkProgress(progress.total, progress.total);
@@ -740,6 +768,7 @@ async function runBulkGrind(region) {
     routes: routes.length,
     gyms: gyms.length,
     dungeons: dungeons.length,
+    units: progress.total,
   };
 }
 
@@ -750,13 +779,16 @@ function startBulkGrindCurrentRegion() {
   const region = player.region;
   const regionName = GameConstants.camelCaseToString(GameConstants.Region[region]);
   const preview = collectBulkTargets(region);
+  const routeUnits = sumNeeded(preview.routes);
+  const gymUnits = sumNeeded(preview.gyms);
+  const dungeonUnits = sumNeeded(preview.dungeons);
   const msg = [
     `Region: <b>${regionName}</b>`,
-    `Routes (oneshot): ${preview.routes.length} × ${BULK_ROUTE_KILLS.toLocaleString()} kills`,
-    `Gyms (oneshot): ${preview.gyms.length} × ${BULK_GYM_CLEARS.toLocaleString()} clears`,
-    `Dungeons (oneshot): ${preview.dungeons.length} × ${BULK_DUNGEON_CLEARS.toLocaleString()} clears`,
+    `Routes: ${preview.routes.length} started/oneshot → +${routeUnits.toLocaleString()} kills (cap ${BULK_ROUTE_KILLS.toLocaleString()})`,
+    `Gyms: ${preview.gyms.length} started/oneshot → +${gymUnits.toLocaleString()} clears (cap ${BULK_GYM_CLEARS.toLocaleString()})`,
+    `Dungeons: ${preview.dungeons.length} started/oneshot → +${dungeonUnits.toLocaleString()} clears (cap ${BULK_DUNGEON_CLEARS.toLocaleString()})`,
     '',
-    'Awards money, exp, gems, hatchery steps and achievement counters. Skips non-oneshot content.',
+    'Only content already started (>0) and below the cap. Skips non-oneshot.',
   ].join('<br/>');
 
   Notifier.confirm({
@@ -778,7 +810,7 @@ function startBulkGrindCurrentRegion() {
 
     try {
       const result = await runBulkGrind(region);
-      const summary = `Done ${result.regionName}: ${result.routes} routes, ${result.gyms} gyms, ${result.dungeons} dungeons`;
+      const summary = `Done ${result.regionName}: ${result.routes} routes, ${result.gyms} gyms, ${result.dungeons} dungeons (+${(result.units || 0).toLocaleString()} total)`;
       setBulkStatus(summary);
       console.log('Auto-Hatchery bulk grind:', summary);
       Notifier.notify = originalNotify;

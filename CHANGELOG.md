@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.9.1] - 01/10/2026
+
+### Changed
+- Bulk grind: only started content (kills/clears > 0); awards only the amount needed to reach 10k route kills / 1k gym & dungeon clears (skips already-capped)
+
 ## [1.9.0] - 01/10/2026
 
 ### Added
