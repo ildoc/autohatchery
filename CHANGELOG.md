@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.9.0] - 01/10/2026
+
+### Added
+- Cheats: Bulk grind current region — oneshot-only async grind (10k route kills, 1k gym/dungeon clears) with money/exp/gems/hatchery steps, progress bar, and hatchery queue refill between chunks
+
+## [1.8.5] - 30/09/2026
+
+### Changed
+- Cheats: visually separate Catch all (options + button) from Auto Purify
+
 ## [1.8.4] - 30/09/2026
 
 ### Added

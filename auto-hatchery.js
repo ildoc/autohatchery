@@ -5,7 +5,7 @@
 // @description Auto-hatch, auto-clicker (gym/dungeon), weather freeze, cheats and QoL for pokeclicker.com
 // @copyright   https://github.com/ildoc
 // @license     GNU GPLv3
-// @version     1.8.4
+// @version     1.9.0
 
 // @homepageURL https://github.com/ildoc/autohatchery/
 // @supportURL  https://github.com/ildoc/autohatchery/issues
@@ -27,6 +27,11 @@ const INITIAL_FARM_POINTS = 1000000000;
 const INITIAL_BATTLE_POINTS = 1000000000;
 const INITIAL_CONTEST_TOKENS = 1000000000;
 const DEFAULT_QUEUE_INTERVAL_MINUTES = 2;
+const BULK_ROUTE_KILLS = 10000;
+const BULK_GYM_CLEARS = 1000;
+const BULK_DUNGEON_CLEARS = 1000;
+const BULK_CHUNK_SIZE = 200;
+const BULK_EGG_CHUNK = 20;
 
 let hatchState = loadSetting('ah_autoHatch', true);
 let eggState = loadSetting('ah_autoEgg', false);
@@ -37,6 +42,7 @@ let pkrsHatcherySearchTime = 0;
 let numMonsWithPkrsCached;
 let queueIntervalId = null;
 let autoPurifyBound = false;
+let bulkGrindRunning = false;
 
 function scheduleIdle(fn, timeout = 2000) {
   const run = () => {
@@ -248,6 +254,7 @@ function addCheatsCard() {
         <span>Cheats</span>
       </div>
       <div id="autoHatcheryCheatsBody" class="card-body show p-2">
+        <div class="small text-muted mb-1">Catch all</div>
         <div class="d-flex flex-wrap align-items-center" style="gap:8px;">
           <div class="form-check mb-0">
             <input type="checkbox" class="form-check-input" id="ah-cheat-shiny">
@@ -265,17 +272,26 @@ function addCheatsCard() {
             <option value="${GameConstants.BattlePokemonGender.NoGender}">Genderless</option>
           </select>
         </div>
-        <div class="d-flex flex-wrap align-items-center mt-2" style="gap:8px;">
-          <button id="ah-auto-purify-toggle" class="btn btn-sm btn-${autoPurifyEnabled ? 'success' : 'danger'}" title="When Orre Purify Chamber reaches maximum flow, automatically purify a Shadow Pokémon">
-            Auto Purify [${autoPurifyEnabled ? 'ON' : 'OFF'}]
-          </button>
-        </div>
         <div class="mt-2">
           <button id="ah-catch-all" class="btn btn-sm btn-warning btn-block">
             Catch all Pokémon (unlocked regions)
           </button>
         </div>
         <div id="ah-cheat-status" class="small text-muted mt-1">Ready</div>
+        <hr class="my-2">
+        <div class="small text-muted mb-1">Orre Purify Chamber</div>
+        <button id="ah-auto-purify-toggle" class="btn btn-sm btn-${autoPurifyEnabled ? 'success' : 'danger'}" title="When Orre Purify Chamber reaches maximum flow, automatically purify a Shadow Pokémon">
+          Auto Purify [${autoPurifyEnabled ? 'ON' : 'OFF'}]
+        </button>
+        <hr class="my-2">
+        <div class="small text-muted mb-1">Region bulk grind</div>
+        <button id="ah-bulk-grind" class="btn btn-sm btn-info btn-block" title="Oneshot-only: ${BULK_ROUTE_KILLS} route kills, ${BULK_GYM_CLEARS} gym clears, ${BULK_DUNGEON_CLEARS} dungeon clears in the current region">
+          Bulk grind current region
+        </button>
+        <div id="ah-bulk-progress-wrap" class="progress mt-2" style="height:10px;display:none;">
+          <div id="ah-bulk-progress" class="progress-bar progress-bar-striped progress-bar-animated bg-info" role="progressbar" style="width:0%;"></div>
+        </div>
+        <div id="ah-bulk-status" class="small text-muted mt-1">Idle</div>
       </div>
     </div>
   `);
@@ -297,6 +313,10 @@ function addCheatsCard() {
   bindAutoPurify();
   if (autoPurifyEnabled)
     tryAutoPurify();
+
+  document.getElementById('ah-bulk-grind').addEventListener('click', () => {
+    startBulkGrindCurrentRegion();
+  });
 }
 
 function setCheatStatus(message) {
@@ -340,6 +360,446 @@ function tryAutoPurify(chamber = App.game?.purifyChamber) {
   chamber.purify();
   setCheatStatus(`Auto purified ${name}`);
   return true;
+}
+
+function setBulkStatus(message) {
+  setElementText('ah-bulk-status', message);
+}
+
+function setBulkProgress(done, total) {
+  const wrap = document.getElementById('ah-bulk-progress-wrap');
+  const bar = document.getElementById('ah-bulk-progress');
+  if (!wrap || !bar)
+    return;
+  if (total <= 0) {
+    wrap.style.display = 'none';
+    bar.style.width = '0%';
+    return;
+  }
+  wrap.style.display = '';
+  const pct = Math.max(0, Math.min(100, Math.round((done / total) * 100)));
+  bar.style.width = `${pct}%`;
+  bar.setAttribute('aria-valuenow', String(pct));
+}
+
+function yieldToUI() {
+  return new Promise(resolve => setTimeout(resolve, 0));
+}
+
+function refillHatcheryForBulk() {
+  try {
+    fillEggSlots();
+    enqueuePokemons(true);
+  } catch (e) {
+    console.error('Auto-Hatchery bulk hatchery refill error:', e);
+  }
+}
+
+function progressEggsForBattles(stepsPerBattle, battles) {
+  let remaining = battles;
+  while (remaining > 0) {
+    const chunk = Math.min(BULK_EGG_CHUNK, remaining);
+    App.game.breeding.progressEggs(stepsPerBattle * chunk);
+    refillHatcheryForBulk();
+    remaining -= chunk;
+  }
+}
+
+function addGemsBulk(gemsByType, multiplier = 1) {
+  for (const [type, amount] of Object.entries(gemsByType)) {
+    const gems = Math.round(amount * multiplier);
+    if (gems > 0)
+      App.game.gems.gainGems(gems, Number(type));
+  }
+}
+
+function routeAverageHp(region, route) {
+  const poke = [...new Set(
+    Object.values(Routes.getRoute(region, route).pokemon).flat().map(p => p.pokemon ?? p).flat()
+  )];
+  if (!poke.length)
+    return 1;
+  const total = poke.map(p => pokemonMap[p].base.hitpoints).reduce((s, a) => s + a, 0);
+  return total / poke.length;
+}
+
+function canOneshotRoute(routeData) {
+  const { region, number: route, subRegion = 0 } = routeData;
+  if (!routeData.isUnlocked())
+    return false;
+  const names = RouteHelper.getAvailablePokemonList(route, region);
+  if (!names.length)
+    return false;
+
+  const baseHp = PokemonFactory.routeHealth(route, region);
+  const avgHp = routeAverageHp(region, route);
+  for (const name of names) {
+    const base = PokemonHelper.getPokemonByName(name);
+    const maxHealth = Math.round(baseHp * (0.9 + (base.hitpoints / avgHp) / 10));
+    const attack = App.game.party.calculatePokemonAttack(
+      base.type1, base.type2, false, region, false, false, undefined, false, true, subRegion
+    );
+    if (attack < maxHealth)
+      return false;
+  }
+  return true;
+}
+
+function canOneshotGym(gym) {
+  if (!gym?.isUnlocked?.())
+    return false;
+  const list = gym.getPokemonList();
+  if (!list.length)
+    return false;
+  for (const gp of list) {
+    const data = PokemonHelper.getPokemonByName(gp.name);
+    const attack = App.game.party.calculatePokemonAttack(data.type1, data.type2);
+    if (attack < gp.maxHealth)
+      return false;
+  }
+  return true;
+}
+
+function dungeonBossHp(boss) {
+  if (typeof DungeonBossPokemon !== 'undefined' && boss instanceof DungeonBossPokemon)
+    return [{ name: boss.name, maxHealth: boss.baseHealth, level: boss.level }];
+
+  if (typeof boss.getTeam === 'function') {
+    const team = boss.getTeam();
+    return team.map(p => ({ name: p.name, maxHealth: p.maxHealth, level: p.level }));
+  }
+  return [];
+}
+
+function canOneshotDungeon(dungeon) {
+  if (!dungeon?.isUnlocked?.() || !dungeon.hasUnlockedBoss?.())
+    return false;
+
+  for (const enemy of dungeon.enemyList) {
+    if (enemy?.options?.requirement && !enemy.options.requirement.isCompleted())
+      continue;
+
+    let names = [];
+    if (typeof enemy === 'string')
+      names = [enemy];
+    else if (enemy?.pokemon)
+      names = [enemy.pokemon];
+    else if (typeof enemy?.getTeam === 'function')
+      names = enemy.getTeam().map(p => p.name);
+
+    for (const name of names) {
+      const data = PokemonHelper.getPokemonByName(name);
+      const attack = App.game.party.calculatePokemonAttack(data.type1, data.type2);
+      if (attack < dungeon.baseHealth)
+        return false;
+    }
+  }
+
+  for (const boss of dungeon.availableBosses(true, false)) {
+    for (const mon of dungeonBossHp(boss)) {
+      const data = PokemonHelper.getPokemonByName(mon.name);
+      const attack = App.game.party.calculatePokemonAttack(data.type1, data.type2);
+      if (attack < mon.maxHealth)
+        return false;
+    }
+  }
+  return true;
+}
+
+function buildRouteRewardModel(routeData) {
+  const { region, number: route } = routeData;
+  const names = RouteHelper.getAvailablePokemonList(route, region);
+  const level = PokemonFactory.routeLevel(route, region);
+  const money = PokemonFactory.routeMoney(route, region, false);
+  const eggSteps = +Math.sqrt(MapHelper.normalizeRoute(route, region)).toFixed(2);
+  let expSum = 0;
+  const gemsByType = {};
+
+  for (const name of names) {
+    const base = PokemonHelper.getPokemonByName(name);
+    expSum += base.exp;
+    const type1Amt = base.type2 === PokemonType.None ? 2 : 1;
+    gemsByType[base.type1] = (gemsByType[base.type1] || 0) + type1Amt;
+    if (base.type2 !== PokemonType.None)
+      gemsByType[base.type2] = (gemsByType[base.type2] || 0) + 1;
+  }
+
+  const count = Math.max(1, names.length);
+  for (const type of Object.keys(gemsByType))
+    gemsByType[type] /= count;
+
+  return {
+    label: Routes.getName(route, region, true),
+    region,
+    route,
+    level,
+    money,
+    avgExp: expSum / count,
+    gemsByType,
+    eggSteps,
+  };
+}
+
+function buildGymRewardModel(gym) {
+  const list = gym.getPokemonList();
+  const gemsByType = {};
+  const expParts = [];
+
+  for (const gp of list) {
+    const data = PokemonHelper.getPokemonByName(gp.name);
+    expParts.push({ exp: data.exp, level: gp.level });
+    const type1Amt = GameConstants.GYM_GEMS * (data.type2 === PokemonType.None ? 2 : 1);
+    gemsByType[data.type1] = (gemsByType[data.type1] || 0) + type1Amt;
+    if (data.type2 !== PokemonType.None)
+      gemsByType[data.type2] = (gemsByType[data.type2] || 0) + GameConstants.GYM_GEMS;
+  }
+
+  const eggRoute = gym.badgeReward * 3 + 1;
+  const eggStepsPerMon = +Math.sqrt(MapHelper.normalizeRoute(eggRoute, GameConstants.Region.none)).toFixed(2);
+
+  return {
+    label: gym.displayName || gym.town,
+    gym,
+    town: gym.town,
+    money: gym.moneyReward,
+    list,
+    expParts,
+    gemsByType,
+    eggStepsPerClear: eggStepsPerMon * list.length,
+  };
+}
+
+function buildDungeonRewardModel(dungeon) {
+  const bosses = dungeon.availableBosses(true, false);
+  // Use the first available boss as representative rewards for a clear (boss-rush)
+  const boss = bosses[0];
+  const mons = boss ? dungeonBossHp(boss) : [];
+  const gemsByType = {};
+  const expParts = [];
+  const gemAmount = GameConstants.DUNGEON_BOSS_GEMS;
+
+  for (const mon of mons) {
+    const data = PokemonHelper.getPokemonByName(mon.name);
+    expParts.push({ exp: data.exp, level: mon.level });
+    const type1Amt = gemAmount * (data.type2 === PokemonType.None ? 2 : 1);
+    gemsByType[data.type1] = (gemsByType[data.type1] || 0) + type1Amt;
+    if (data.type2 !== PokemonType.None)
+      gemsByType[data.type2] = (gemsByType[data.type2] || 0) + gemAmount;
+  }
+
+  const eggSteps = +Math.sqrt(MapHelper.normalizeRoute(dungeon.difficultyRoute, player.region)).toFixed(2);
+
+  return {
+    label: dungeon.name,
+    dungeon,
+    money: Math.round(dungeon.tokenCost), // approximate money from boss trainer path; wild bosses use their own
+    expParts,
+    gemsByType,
+    eggStepsPerClear: eggSteps * Math.max(1, mons.length),
+    monCount: Math.max(1, mons.length),
+  };
+}
+
+async function awardRouteKills(model, kills, progress) {
+  const stats = App.game.statistics.routeKills[model.region][model.route];
+  let remaining = kills;
+  while (remaining > 0) {
+    const chunk = Math.min(BULK_CHUNK_SIZE, remaining);
+    GameHelper.incrementObservable(stats, chunk);
+    App.game.wallet.gainMoney(model.money * chunk, true);
+    App.game.party.gainExp(model.avgExp * chunk, model.level, false);
+    addGemsBulk(model.gemsByType, chunk);
+    progressEggsForBattles(model.eggSteps, chunk);
+    remaining -= chunk;
+    progress.done += chunk;
+    setBulkProgress(progress.done, progress.total);
+    setBulkStatus(`Route ${model.label}: +${kills - remaining}/${kills}`);
+    await yieldToUI();
+  }
+}
+
+async function awardGymClears(model, clears, progress) {
+  const idx = GameConstants.getGymIndex(model.town);
+  const stats = App.game.statistics.gymsDefeated[idx];
+
+  if (!App.game.badgeCase.hasBadge(model.gym.badgeReward)) {
+    App.game.badgeCase.gainBadge(model.gym.badgeReward);
+    try {
+      model.gym.rewardFunction();
+    } catch (e) {
+      console.warn('Auto-Hatchery bulk gym first-win reward error:', e);
+    }
+  }
+
+  let remaining = clears;
+  while (remaining > 0) {
+    const chunk = Math.min(BULK_CHUNK_SIZE, remaining);
+    GameHelper.incrementObservable(stats, chunk);
+    App.game.wallet.gainMoney(model.money * chunk, true);
+    for (const part of model.expParts)
+      App.game.party.gainExp(part.exp * chunk, part.level, true);
+    addGemsBulk(model.gemsByType, chunk);
+    progressEggsForBattles(model.eggStepsPerClear, chunk);
+    remaining -= chunk;
+    progress.done += chunk;
+    setBulkProgress(progress.done, progress.total);
+    setBulkStatus(`Gym ${model.label}: +${clears - remaining}/${clears}`);
+    await yieldToUI();
+  }
+}
+
+async function awardDungeonClears(model, clears, progress) {
+  const idx = GameConstants.getDungeonIndex(model.dungeon.name);
+  const stats = App.game.statistics.dungeonsCleared[idx];
+  const hadClears = stats() > 0;
+
+  if (!hadClears) {
+    try {
+      model.dungeon.rewardFunction();
+    } catch (e) {
+      console.warn('Auto-Hatchery bulk dungeon first-clear reward error:', e);
+    }
+  }
+
+  let remaining = clears;
+  while (remaining > 0) {
+    const chunk = Math.min(BULK_CHUNK_SIZE, remaining);
+    GameHelper.incrementObservable(stats, chunk);
+    if (model.money > 0)
+      App.game.wallet.gainMoney(model.money * chunk, true);
+    for (const part of model.expParts)
+      App.game.party.gainExp(part.exp * chunk, part.level, true);
+    addGemsBulk(model.gemsByType, chunk);
+    progressEggsForBattles(model.eggStepsPerClear, chunk);
+    remaining -= chunk;
+    progress.done += chunk;
+    setBulkProgress(progress.done, progress.total);
+    setBulkStatus(`Dungeon ${model.label}: +${clears - remaining}/${clears}`);
+    await yieldToUI();
+  }
+}
+
+function collectBulkTargets(region) {
+  const routes = Routes.getRoutesByRegion(region)
+    .filter(canOneshotRoute)
+    .map(buildRouteRewardModel);
+
+  const gymNames = GameConstants.RegionGyms[region] || [];
+  const gyms = gymNames
+    .map(name => GymList[name])
+    .filter(canOneshotGym)
+    .map(buildGymRewardModel);
+
+  const dungeonNames = GameConstants.RegionDungeons[region] || [];
+  const dungeons = dungeonNames
+    .map(name => dungeonList[name])
+    .filter(canOneshotDungeon)
+    .map(buildDungeonRewardModel);
+
+  return { routes, gyms, dungeons };
+}
+
+async function runBulkGrind(region) {
+  const regionName = GameConstants.camelCaseToString(GameConstants.Region[region]);
+  const { routes, gyms, dungeons } = collectBulkTargets(region);
+
+  const progress = {
+    done: 0,
+    total:
+      routes.length * BULK_ROUTE_KILLS
+      + gyms.length * BULK_GYM_CLEARS
+      + dungeons.length * BULK_DUNGEON_CLEARS,
+  };
+
+  if (progress.total <= 0) {
+    setBulkStatus(`No oneshot targets in ${regionName}`);
+    setBulkProgress(0, 0);
+    return {
+      regionName,
+      routes: 0,
+      gyms: 0,
+      dungeons: 0,
+    };
+  }
+
+  setBulkProgress(0, progress.total);
+  setBulkStatus(`Starting ${regionName}…`);
+
+  for (const model of routes)
+    await awardRouteKills(model, BULK_ROUTE_KILLS, progress);
+  for (const model of gyms)
+    await awardGymClears(model, BULK_GYM_CLEARS, progress);
+  for (const model of dungeons)
+    await awardDungeonClears(model, BULK_DUNGEON_CLEARS, progress);
+
+  refillHatcheryForBulk();
+  setBulkProgress(progress.total, progress.total);
+
+  return {
+    regionName,
+    routes: routes.length,
+    gyms: gyms.length,
+    dungeons: dungeons.length,
+  };
+}
+
+function startBulkGrindCurrentRegion() {
+  if (bulkGrindRunning)
+    return;
+
+  const region = player.region;
+  const regionName = GameConstants.camelCaseToString(GameConstants.Region[region]);
+  const preview = collectBulkTargets(region);
+  const msg = [
+    `Region: <b>${regionName}</b>`,
+    `Routes (oneshot): ${preview.routes.length} × ${BULK_ROUTE_KILLS.toLocaleString()} kills`,
+    `Gyms (oneshot): ${preview.gyms.length} × ${BULK_GYM_CLEARS.toLocaleString()} clears`,
+    `Dungeons (oneshot): ${preview.dungeons.length} × ${BULK_DUNGEON_CLEARS.toLocaleString()} clears`,
+    '',
+    'Awards money, exp, gems, hatchery steps and achievement counters. Skips non-oneshot content.',
+  ].join('<br/>');
+
+  Notifier.confirm({
+    title: 'Cheats — Bulk grind',
+    message: msg,
+    type: NotificationConstants.NotificationOption.info,
+    confirm: 'Start bulk grind',
+  }).then(async confirmed => {
+    if (!confirmed)
+      return;
+
+    const btn = document.getElementById('ah-bulk-grind');
+    bulkGrindRunning = true;
+    if (btn)
+      btn.disabled = true;
+
+    const originalNotify = Notifier.notify;
+    Notifier.notify = () => {};
+
+    try {
+      const result = await runBulkGrind(region);
+      const summary = `Done ${result.regionName}: ${result.routes} routes, ${result.gyms} gyms, ${result.dungeons} dungeons`;
+      setBulkStatus(summary);
+      console.log('Auto-Hatchery bulk grind:', summary);
+      Notifier.notify = originalNotify;
+      Notifier.notify({
+        title: 'Cheats — Bulk grind',
+        message: summary,
+        type: NotificationConstants.NotificationOption.success,
+        timeout: 5 * GameConstants.SECOND,
+      });
+    } catch (e) {
+      console.error('Auto-Hatchery bulk grind error:', e);
+      setBulkStatus('Error — see console');
+      Notifier.notify = originalNotify;
+    } finally {
+      Notifier.notify = originalNotify;
+      bulkGrindRunning = false;
+      if (btn)
+        btn.disabled = false;
+      refillHatcheryForBulk();
+    }
+  });
 }
 
 function getCheatOptions() {
