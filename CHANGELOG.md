@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.9.2] - 01/10/2026
+
+### Changed
+- Bulk grind: removed oneshot requirement; still only started content below the kill/clear caps
+
 ## [1.9.1] - 01/10/2026
 
 ### Changed

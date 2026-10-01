@@ -5,7 +5,7 @@
 // @description Auto-hatch, auto-clicker (gym/dungeon), weather freeze, cheats and QoL for pokeclicker.com
 // @copyright   https://github.com/ildoc
 // @license     GNU GPLv3
-// @version     1.9.1
+// @version     1.9.2
 
 // @homepageURL https://github.com/ildoc/autohatchery/
 // @supportURL  https://github.com/ildoc/autohatchery/issues
@@ -285,7 +285,7 @@ function addCheatsCard() {
         </button>
         <hr class="my-2">
         <div class="small text-muted mb-1">Region bulk grind</div>
-        <button id="ah-bulk-grind" class="btn btn-sm btn-info btn-block" title="Oneshot-only: fill started routes to ${BULK_ROUTE_KILLS} kills and started gyms/dungeons to ${BULK_GYM_CLEARS}/${BULK_DUNGEON_CLEARS} clears in the current region">
+        <button id="ah-bulk-grind" class="btn btn-sm btn-info btn-block" title="Fill started routes to ${BULK_ROUTE_KILLS} kills and started gyms/dungeons to ${BULK_GYM_CLEARS}/${BULK_DUNGEON_CLEARS} clears in the current region">
           Bulk grind current region
         </button>
         <div id="ah-bulk-progress-wrap" class="progress mt-2" style="height:10px;display:none;">
@@ -413,53 +413,6 @@ function addGemsBulk(gemsByType, multiplier = 1) {
   }
 }
 
-function routeAverageHp(region, route) {
-  const poke = [...new Set(
-    Object.values(Routes.getRoute(region, route).pokemon).flat().map(p => p.pokemon ?? p).flat()
-  )];
-  if (!poke.length)
-    return 1;
-  const total = poke.map(p => pokemonMap[p].base.hitpoints).reduce((s, a) => s + a, 0);
-  return total / poke.length;
-}
-
-function canOneshotRoute(routeData) {
-  const { region, number: route, subRegion = 0 } = routeData;
-  if (!routeData.isUnlocked())
-    return false;
-  const names = RouteHelper.getAvailablePokemonList(route, region);
-  if (!names.length)
-    return false;
-
-  const baseHp = PokemonFactory.routeHealth(route, region);
-  const avgHp = routeAverageHp(region, route);
-  for (const name of names) {
-    const base = PokemonHelper.getPokemonByName(name);
-    const maxHealth = Math.round(baseHp * (0.9 + (base.hitpoints / avgHp) / 10));
-    const attack = App.game.party.calculatePokemonAttack(
-      base.type1, base.type2, false, region, false, false, undefined, false, true, subRegion
-    );
-    if (attack < maxHealth)
-      return false;
-  }
-  return true;
-}
-
-function canOneshotGym(gym) {
-  if (!gym?.isUnlocked?.())
-    return false;
-  const list = gym.getPokemonList();
-  if (!list.length)
-    return false;
-  for (const gp of list) {
-    const data = PokemonHelper.getPokemonByName(gp.name);
-    const attack = App.game.party.calculatePokemonAttack(data.type1, data.type2);
-    if (attack < gp.maxHealth)
-      return false;
-  }
-  return true;
-}
-
 function dungeonBossHp(boss) {
   if (typeof DungeonBossPokemon !== 'undefined' && boss instanceof DungeonBossPokemon)
     return [{ name: boss.name, maxHealth: boss.baseHealth, level: boss.level }];
@@ -469,41 +422,6 @@ function dungeonBossHp(boss) {
     return team.map(p => ({ name: p.name, maxHealth: p.maxHealth, level: p.level }));
   }
   return [];
-}
-
-function canOneshotDungeon(dungeon) {
-  if (!dungeon?.isUnlocked?.() || !dungeon.hasUnlockedBoss?.())
-    return false;
-
-  for (const enemy of dungeon.enemyList) {
-    if (enemy?.options?.requirement && !enemy.options.requirement.isCompleted())
-      continue;
-
-    let names = [];
-    if (typeof enemy === 'string')
-      names = [enemy];
-    else if (enemy?.pokemon)
-      names = [enemy.pokemon];
-    else if (typeof enemy?.getTeam === 'function')
-      names = enemy.getTeam().map(p => p.name);
-
-    for (const name of names) {
-      const data = PokemonHelper.getPokemonByName(name);
-      const attack = App.game.party.calculatePokemonAttack(data.type1, data.type2);
-      if (attack < dungeon.baseHealth)
-        return false;
-    }
-  }
-
-  for (const boss of dungeon.availableBosses(true, false)) {
-    for (const mon of dungeonBossHp(boss)) {
-      const data = PokemonHelper.getPokemonByName(mon.name);
-      const attack = App.game.party.calculatePokemonAttack(data.type1, data.type2);
-      if (attack < mon.maxHealth)
-        return false;
-    }
-  }
-  return true;
 }
 
 function buildRouteRewardModel(routeData) {
@@ -686,7 +604,6 @@ function getDungeonClearCount(name) {
 
 function collectBulkTargets(region) {
   const routes = Routes.getRoutesByRegion(region)
-    .filter(canOneshotRoute)
     .map(routeData => {
       const current = getRouteKillCount(routeData.region, routeData.number);
       const needed = Math.max(0, BULK_ROUTE_KILLS - current);
@@ -699,7 +616,7 @@ function collectBulkTargets(region) {
   const gymNames = GameConstants.RegionGyms[region] || [];
   const gyms = gymNames
     .map(name => GymList[name])
-    .filter(canOneshotGym)
+    .filter(Boolean)
     .map(gym => {
       const current = getGymClearCount(gym.town);
       const needed = Math.max(0, BULK_GYM_CLEARS - current);
@@ -712,7 +629,7 @@ function collectBulkTargets(region) {
   const dungeonNames = GameConstants.RegionDungeons[region] || [];
   const dungeons = dungeonNames
     .map(name => dungeonList[name])
-    .filter(canOneshotDungeon)
+    .filter(Boolean)
     .map(dungeon => {
       const current = getDungeonClearCount(dungeon.name);
       const needed = Math.max(0, BULK_DUNGEON_CLEARS - current);
@@ -739,7 +656,7 @@ async function runBulkGrind(region) {
   };
 
   if (progress.total <= 0) {
-    setBulkStatus(`Nothing to grind in ${regionName} (need started + oneshot + below cap)`);
+    setBulkStatus(`Nothing to grind in ${regionName} (need started + below cap)`);
     setBulkProgress(0, 0);
     return {
       regionName,
@@ -784,11 +701,11 @@ function startBulkGrindCurrentRegion() {
   const dungeonUnits = sumNeeded(preview.dungeons);
   const msg = [
     `Region: <b>${regionName}</b>`,
-    `Routes: ${preview.routes.length} started/oneshot → +${routeUnits.toLocaleString()} kills (cap ${BULK_ROUTE_KILLS.toLocaleString()})`,
-    `Gyms: ${preview.gyms.length} started/oneshot → +${gymUnits.toLocaleString()} clears (cap ${BULK_GYM_CLEARS.toLocaleString()})`,
-    `Dungeons: ${preview.dungeons.length} started/oneshot → +${dungeonUnits.toLocaleString()} clears (cap ${BULK_DUNGEON_CLEARS.toLocaleString()})`,
+    `Routes: ${preview.routes.length} started → +${routeUnits.toLocaleString()} kills (cap ${BULK_ROUTE_KILLS.toLocaleString()})`,
+    `Gyms: ${preview.gyms.length} started → +${gymUnits.toLocaleString()} clears (cap ${BULK_GYM_CLEARS.toLocaleString()})`,
+    `Dungeons: ${preview.dungeons.length} started → +${dungeonUnits.toLocaleString()} clears (cap ${BULK_DUNGEON_CLEARS.toLocaleString()})`,
     '',
-    'Only content already started (>0) and below the cap. Skips non-oneshot.',
+    'Only content already started (>0) and below the cap.',
   ].join('<br/>');
 
   Notifier.confirm({
