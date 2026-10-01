@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.9.3] - 01/10/2026
+
+### Added
+- Cheats Catch all: Pokérus combo (Normal / Infected / Resistant)
+
 ## [1.9.2] - 01/10/2026
 
 ### Changed

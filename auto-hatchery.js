@@ -5,7 +5,7 @@
 // @description Auto-hatch, auto-clicker (gym/dungeon), weather freeze, cheats and QoL for pokeclicker.com
 // @copyright   https://github.com/ildoc
 // @license     GNU GPLv3
-// @version     1.9.2
+// @version     1.9.3
 
 // @homepageURL https://github.com/ildoc/autohatchery/
 // @supportURL  https://github.com/ildoc/autohatchery/issues
@@ -270,6 +270,12 @@ function addCheatsCard() {
             <option value="${GameConstants.BattlePokemonGender.Male}">Male</option>
             <option value="${GameConstants.BattlePokemonGender.Female}">Female</option>
             <option value="${GameConstants.BattlePokemonGender.NoGender}">Genderless</option>
+          </select>
+          <label class="mb-0 small" for="ah-cheat-pokerus">Pokérus</label>
+          <select id="ah-cheat-pokerus" class="custom-select custom-select-sm" style="width:auto;">
+            <option value="${GameConstants.Pokerus.Uninfected}" selected>Normal</option>
+            <option value="${GameConstants.Pokerus.Infected}">Infected</option>
+            <option value="${GameConstants.Pokerus.Resistant}">Resistant</option>
           </select>
         </div>
         <div class="mt-2">
@@ -757,7 +763,16 @@ function getCheatOptions() {
     ? GameConstants.ShadowStatus.Shadow
     : GameConstants.ShadowStatus.None;
   const genderValue = document.getElementById('ah-cheat-gender')?.value ?? 'random';
-  return { shiny, shadow, genderValue };
+  const pokerus = Number(document.getElementById('ah-cheat-pokerus')?.value ?? GameConstants.Pokerus.Uninfected);
+  return { shiny, shadow, genderValue, pokerus };
+}
+
+function pokerusLabel(pokerus) {
+  if (pokerus === GameConstants.Pokerus.Infected)
+    return 'Infected';
+  if (pokerus === GameConstants.Pokerus.Resistant)
+    return 'Resistant';
+  return 'Normal';
 }
 
 function resolveCheatGender(pokemonId, genderValue) {
@@ -785,13 +800,13 @@ function getUnlockedRegionPokemon() {
 
 function catchAllUnlockedPokemon() {
   const btn = document.getElementById('ah-catch-all');
-  const { shiny, shadow, genderValue } = getCheatOptions();
+  const { shiny, shadow, genderValue, pokerus } = getCheatOptions();
   const list = getUnlockedRegionPokemon();
   const regionName = GameConstants.camelCaseToString(GameConstants.Region[player.highestRegion()]);
 
   Notifier.confirm({
     title: 'Cheats — Catch all',
-    message: `Add ${list.length} Pokémon from regions up to <b>${regionName}</b>?<br/>Shiny: ${shiny ? 'yes' : 'no'} · Shadow: ${shadow === GameConstants.ShadowStatus.Shadow ? 'yes' : 'no'} · Gender: ${genderValue}`,
+    message: `Add ${list.length} Pokémon from regions up to <b>${regionName}</b>?<br/>Shiny: ${shiny ? 'yes' : 'no'} · Shadow: ${shadow === GameConstants.ShadowStatus.Shadow ? 'yes' : 'no'} · Gender: ${genderValue} · Pokérus: ${pokerusLabel(pokerus)}`,
     type: NotificationConstants.NotificationOption.warning,
     confirm: 'Catch all',
   }).then(confirmed => {
@@ -809,6 +824,7 @@ function catchAllUnlockedPokemon() {
     let gained = 0;
     let shinyUpgrades = 0;
     let shadowUpgrades = 0;
+    let pokerusSet = 0;
 
     try {
       for (const p of list) {
@@ -818,6 +834,12 @@ function catchAllUnlockedPokemon() {
         const gender = resolveCheatGender(p.id, genderValue);
 
         App.game.party.gainPokemonById(p.id, shiny, true, gender, shadow);
+
+        const partyMon = App.game.party.getPokemon(p.id);
+        if (partyMon && partyMon.pokerus !== pokerus) {
+          partyMon.pokerus = pokerus;
+          pokerusSet++;
+        }
 
         if (!alreadyCaught)
           gained++;
@@ -836,7 +858,7 @@ function catchAllUnlockedPokemon() {
         btn.disabled = false;
     }
 
-    const summary = `Done: ${gained} new, ${shinyUpgrades} shiny, ${shadowUpgrades} shadow (${list.length} checked)`;
+    const summary = `Done: ${gained} new, ${shinyUpgrades} shiny, ${shadowUpgrades} shadow, ${pokerusSet} pokérus (${list.length} checked)`;
     setCheatStatus(summary);
     console.log('Auto-Hatchery cheat:', summary);
     Notifier.notify({
