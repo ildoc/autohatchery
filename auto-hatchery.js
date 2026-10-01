@@ -3,12 +3,12 @@
 // @namespace   Pokeclicker Scripts
 // @author      ildoc
 // @description Auto-hatch, auto-clicker (gym/dungeon), weather freeze, cheats and QoL for pokeclicker.com
-// @copyright   https://github.com/ildoc
+// @copyright   https://gitlab.ildoc.it/ildoc
 // @license     GNU GPLv3
 // @version     1.9.3
 
-// @homepageURL https://github.com/ildoc/autohatchery/
-// @supportURL  https://github.com/ildoc/autohatchery/issues
+// @homepageURL https://gitlab.ildoc.it/ildoc/autohatchery/
+// @supportURL  https://gitlab.ildoc.it/ildoc/autohatchery/issues
 
 // @match       https://www.pokeclicker.com/
 // @icon        https://www.google.com/s2/favicons?domain=pokeclicker.com
